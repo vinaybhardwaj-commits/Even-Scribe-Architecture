@@ -3,7 +3,7 @@
 
 Rev 3 is written against production at `main` `9010ba8`, after your capability note. `stt_turn` is a cue type, not a table. Mini Whisper as wired returns one blob. Slice A changes that client, then posts turns to scratch.
 
-Rulings are in `DESIGNER-REPLY-SPEECH-TURNS-CAPABILITY-22-AUG-2026.md`. This file is the build.
+Rulings are in `DESIGNER-REPLY-SPEECH-TURNS-CAPABILITY-22-AUG-2026.md`. Closed forks in `DESIGNER-REPLY-SPEECH-TURNS-REV3-ISSUES-22-AUG-2026.md`. This file is the build.
 
 ## In English
 
@@ -26,7 +26,7 @@ Widen `lib/whisper.ts` to request `verbose_json`. Widen `WhisperResult` so segme
 
 Do not touch the encounter pipeline. Do not call `runDiarize`. Do not pull `lib/stt/eta-router.ts`. Do not create a `stt_turn` table. `0042` already allows the type.
 
-First commit of A: blocklist on `scribe_post_cue` so `stt_turn`, `speaker_match`, `pqm_called`, `pstart`, `dx_event`, `pulse_note` cannot land on a live day. Producer types use the scratch path only (`room_day_id` + lock + `not_a_scratch_day` 409).
+First commit of A: blocklist on `scribe_post_cue` so `stt_turn`, `stt_silence`, `speaker_match`, `pqm_called`, `pstart`, `dx_event`, `pulse_note` cannot land on a live day. Producer types use the scratch path only (`room_day_id` + lock + `not_a_scratch_day` 409).
 
 ## What this is not
 
@@ -59,13 +59,17 @@ Windows ≤ 30 minutes. Refuse while any room is recording. Primary unless the s
 type        stt_turn
 source      replay
 at          segment start
-source_ref  session_id + at + end
+source_ref  {session_id}|{start_ms}|{end_ms}|{speaker}
 payload     { end, text, engine: whisper, source_used, window, language }
 ```
 
+`source_ref` is four pipe-separated fields. `start_ms` / `end_ms` are integer epoch milliseconds, floored from Whisper’s clip-relative seconds onto the asked window start. `speaker` is `-` in slice A. Slice B writes the integer `speaker_idx` in that same slot. Silence uses the window start/end and `speaker` `-`.
+
 One cue per Whisper segment. Blob-only response is a failed A — do not post one blob as a turn.
 
-Idempotency: `(source_ref, type)` where `source = 'replay'`. The 0046 `(session_id, type, at)` key stays for marks. Do not unique turns on `at` alone.
+**Migration `0050`:** narrow `cue_replay_natural_key` to `WHERE source = 'replay' AND type NOT IN ('stt_turn', 'stt_silence', 'speaker_match')`. Add `UNIQUE (source_ref, type) WHERE source = 'replay' AND type IN ('stt_turn', 'stt_silence', 'speaker_match')`. Marks stay on 0046. Turn insert names that target. Report written / already existed / dropped.
+
+Empty audio is `type = 'stt_silence'`, not a missing `stt_turn`. Same source, same scratch path.
 
 Text is clinical speech. `scribe_list_cues` stays summary-only unless asked. Do not paste transcripts into Slack, chat, or this repo.
 
@@ -74,7 +78,7 @@ Fail closed if the provider is not Whisper. Do not write turns from a silent Oll
 ## First demo, not 13 hours
 
 1. Cardiology around 06:54Z (Dibyendu’s one note). Hear the consult that already has a visit.
-2. OPD 7, one window inside `04:36:59Z → 10:39:35Z`. Words or an explicit `no_audio` count. No new visit.
+2. OPD 7, one window inside `04:36:59Z → 10:39:35Z`. Words or an `stt_silence` cue. No new visit.
 
 Then I read the report. Then the rest of the finished sessions on the same scratch days.
 
@@ -83,7 +87,8 @@ Then I read the report. Then the rest of the finished sessions on the same scrat
 Same tool, `scribe_fuse_report`:
 
 - `stt_turn` count
-- tape minutes asked / minutes with words / minutes `no_audio`
+- `stt_silence` count
+- tape minutes asked / minutes with words / minutes silent
 - windows that used backup
 - language whisper.cpp reported
 
@@ -93,10 +98,10 @@ Same tool, `scribe_fuse_report`:
 
 1. Dry-run lists turns, posts nothing. Live OPD 7 cue count stays 1. Live Cardiology stays three kiosk marks.
 2. Scratch write: Cardiology 06:54Z window produces `stt_turn` rows with `payload.end` on `rd_scratch_bh6jtq4t_20260819`.
-3. Scratch write: one hole window on OPD 7 produces words or `no_audio`. It does not invent a visit.
-4. Second write is 0 new turns.
+3. Scratch write: one hole window on OPD 7 produces words or `stt_silence`. It does not invent a visit.
+4. Second write is 0 written, N already existed, 0 dropped.
 5. `bs_8temrdqh` skipped by name.
-6. `scribe_post_cue` of `type=stt_turn` on a live room is refused.
+6. `scribe_post_cue` of `type=stt_turn` or `stt_silence` on a live room is refused.
 7. No Pulse writes. No Slack. No Gerrit. No second Dibyendu note.
 
 Send the two-window report before walking the rest of the day.
