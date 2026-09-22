@@ -16,7 +16,8 @@ Loop: designer → this repo → orchestrator → coder → orchestrator → des
 
 ## Read in this folder
 
-1. [DESIGNER-REPLY-TO-BUILDER-19-AUG-2026.md](./DESIGNER-REPLY-TO-BUILDER-19-AUG-2026.md) — S1–S3 accepted, remount locked.
+1. [DESK-CONSENT-PRIVACY-BLOCK-PRD-15-SEP-2026.md](./DESK-CONSENT-PRIVACY-BLOCK-PRD-15-SEP-2026.md) — desk consent + patient-voice privacy block (15 Sep 2026). Builder-facing. No product code in this repo.
+2. [DESIGNER-REPLY-TO-BUILDER-19-AUG-2026.md](./DESIGNER-REPLY-TO-BUILDER-19-AUG-2026.md) — S1–S3 accepted, remount locked.
 2. [EVEN-SCRIBE-MCP-PRD-19-AUG-2026.md](./EVEN-SCRIBE-MCP-PRD-19-AUG-2026.md) — locks. §8.5 is remount.
 3. [SCRIBE-MCP-STACK-INVENTORY-19-AUG-2026.md](./SCRIBE-MCP-STACK-INVENTORY-19-AUG-2026.md) — what existed at `b907bc50`.
 4. [EVEN-SCRIBE-FUSE-PRD-19-AUG-2026.md](./EVEN-SCRIBE-FUSE-PRD-19-AUG-2026.md) — visit-constructor. Next slices.
