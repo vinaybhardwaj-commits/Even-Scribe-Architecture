@@ -14,6 +14,7 @@ Loop: designer → this repo → orchestrator → coder on the product branch �
 
 Share this with the orchestrator:
 
+- [operator-mcp/STT-SANITIZE-REPEAT-RATIO-13-SEP-2026.md](./operator-mcp/STT-SANITIZE-REPEAT-RATIO-13-SEP-2026.md) — Whisper loops: gate → decode → sanitize → score. Repeat-ratio. Drain sanitizes before write.
 - [operator-mcp/ORCHESTRATOR-RECOMMENDATIONS-20-AUG-2026.md](./operator-mcp/ORCHESTRATOR-RECOMMENDATIONS-20-AUG-2026.md) — what to build next, in order.
 - [operator-mcp/EVEN-SCRIBE-FUSE-PRD-19-AUG-2026.md](./operator-mcp/EVEN-SCRIBE-FUSE-PRD-19-AUG-2026.md) — visit-constructor.
 - [operator-mcp/DESIGNER-REPLY-TO-BUILDER-19-AUG-2026.md](./operator-mcp/DESIGNER-REPLY-TO-BUILDER-19-AUG-2026.md) — S1–S3 accepted, remount locked.
