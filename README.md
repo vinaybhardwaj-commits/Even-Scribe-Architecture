@@ -14,6 +14,7 @@ Loop: designer → this repo → orchestrator → coder on the product branch �
 
 Share this with the orchestrator:
 
+- [handoffs/2026-10-05-capture-fleet-builder-brief.md](./handoffs/2026-10-05-capture-fleet-builder-brief.md) — 5–6 Oct capture/fleet gaps for the ETA builder (Arch #14–#17). Implementation stays in Even-Transcription-Assistant.
 - [operator-mcp/ORCHESTRATOR-RECOMMENDATIONS-20-AUG-2026.md](./operator-mcp/ORCHESTRATOR-RECOMMENDATIONS-20-AUG-2026.md) — what to build next, in order.
 - [operator-mcp/EVEN-SCRIBE-FUSE-PRD-19-AUG-2026.md](./operator-mcp/EVEN-SCRIBE-FUSE-PRD-19-AUG-2026.md) — visit-constructor.
 - [operator-mcp/DESIGNER-REPLY-TO-BUILDER-19-AUG-2026.md](./operator-mcp/DESIGNER-REPLY-TO-BUILDER-19-AUG-2026.md) — S1–S3 accepted, remount locked.
