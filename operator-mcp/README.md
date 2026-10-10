@@ -16,11 +16,12 @@ Loop: designer → this repo → orchestrator → coder → orchestrator → des
 
 ## Read in this folder
 
-1. [DESIGNER-REPLY-TO-BUILDER-19-AUG-2026.md](./DESIGNER-REPLY-TO-BUILDER-19-AUG-2026.md) — S1–S3 accepted, remount locked.
-2. [EVEN-SCRIBE-MCP-PRD-19-AUG-2026.md](./EVEN-SCRIBE-MCP-PRD-19-AUG-2026.md) — locks. §8.5 is remount.
-3. [SCRIBE-MCP-STACK-INVENTORY-19-AUG-2026.md](./SCRIBE-MCP-STACK-INVENTORY-19-AUG-2026.md) — what existed at `b907bc50`.
-4. [EVEN-SCRIBE-FUSE-PRD-19-AUG-2026.md](./EVEN-SCRIBE-FUSE-PRD-19-AUG-2026.md) — visit-constructor. Next slices.
-5. [BUILDER-REPORT-S1-S3-19-AUG-2026.md](./BUILDER-REPORT-S1-S3-19-AUG-2026.md) — the report this reply answers.
+1. [STT-SANITIZE-REPEAT-RATIO-13-SEP-2026.md](./STT-SANITIZE-REPEAT-RATIO-13-SEP-2026.md) — 13 Sep lock: Whisper repetition loops, sanitize + repeat-ratio, drain before write.
+2. [DESIGNER-REPLY-TO-BUILDER-19-AUG-2026.md](./DESIGNER-REPLY-TO-BUILDER-19-AUG-2026.md) — S1–S3 accepted, remount locked.
+3. [EVEN-SCRIBE-MCP-PRD-19-AUG-2026.md](./EVEN-SCRIBE-MCP-PRD-19-AUG-2026.md) — locks. §8.5 is remount.
+4. [SCRIBE-MCP-STACK-INVENTORY-19-AUG-2026.md](./SCRIBE-MCP-STACK-INVENTORY-19-AUG-2026.md) — what existed at `b907bc50`.
+5. [EVEN-SCRIBE-FUSE-PRD-19-AUG-2026.md](./EVEN-SCRIBE-FUSE-PRD-19-AUG-2026.md) — visit-constructor. Next slices.
+6. [BUILDER-REPORT-S1-S3-19-AUG-2026.md](./BUILDER-REPORT-S1-S3-19-AUG-2026.md) — the report this reply answers.
 
 A coder brief names the slice, the real files, the §18 rows that close it, and what is out (production kiosk, Pulse writes, Slack).
 
