@@ -8,9 +8,20 @@
 | Authors | **Designer** (Grok Bot, Scribe-side architecture: this half) · **CAA** (Clinical Audio Analysis: the question-set and eval sections, placeholders below) |
 | Code base | ETA `vinaybhardwaj-commits/Even-Transcription-Assistant`, `main` @ **`d94e724`** (`d94e724301647a0f38b0bc843ba769104eb58a1b`, committed 10 Oct 11:12 IST, freshly fetched). The Scribe MCP reports live = `99484f9`; the live build may lag `main`. |
 | Related | Architecture PR [#34](https://github.com/vinaybhardwaj-commits/Even-Scribe-Architecture/pull/34) (`prd/2026-10-09-nemotron-production-encounter-timeline.md`, branch `docs/prd-nemotron-production-encounter-timeline` @ `20d4039`), epic [#23](https://github.com/vinaybhardwaj-commits/Even-Scribe-Architecture/issues/23), issues #25–#33 (#24 duplicates #25), `/workspace/eta-nemotron-jev-encounters-2026-10-09.md`, CAA's `/workspace/jev/JEV-QUESTION-GUIDE.md`, `/workspace/jev/JEV-PITCH-COMPARISON-2026-10-10.md`, `/home/box/shared/eta-bus/NEMOTRON-PRIMER-AND-JEV-PLAN-2026-10-10.md` |
-| Status | Draft for builder. CAA sections merged verbatim 10 Oct ~12:10 IST. Conflicts with PR #34 / epic #23 resolved in **§16** (§16 wins over any earlier Scribe-side line it contradicts). **The text lane (§16.2) needs Vinay's GO.** Read-only work: no invoke or write MCP call, Pulse not touched. |
+| Status | Draft for builder. CAA sections merged verbatim 10 Oct ~12:10 IST. **Rulings (10 Oct 12:27 IST) win over any earlier text, including §16.** Text to Jev is approved; `ETA_JEV_TEXT_LANE` is an operational on/off switch only. Read-only work: no invoke or write MCP call, Pulse not touched. |
 
-**How to read this.** A `path:line` is ETA `main` @ `d94e724` unless marked otherwise. **[inferred]** marks a proposal or inference not verified in code. **PROVISIONAL** marks a number that a bench run or a ruling must confirm. There is no patient data here: only ids, counts, times and scores.
+**How to read this.** A `path:line` is ETA `main` @ `d94e724` unless marked otherwise. **[inferred]** marks a proposal or inference not verified in code. **PROVISIONAL** marks a number that a bench run or a ruling must confirm. There is no patient data here: only ids, counts, times and scores. **Rulings (10 Oct 12:27 IST) win over any earlier text in this document.**
+
+## Rulings (10 Oct 12:27 IST)
+
+Vinay issued these rulings at 12:27 IST on 10 Oct 2026. **This section wins over any earlier text**, including §16 and the CAA sections merged at ~12:10 IST.
+
+1. **Boundaries.** A **consult** ends when the patient leaves the room. An **encounter** ends when the note is submitted. `u10_end_row` is the consult end (the row in which the patient leaves the room). Doctor-alone time after the patient has left (typing, dictating, calling the next patient) is after the consult end. Note submission is the encounter end and is not an `u10_end_row` target. Scoring truth uses those two definitions. Open question 12 is **closed**.
+2. **Pitch scope.** A pitch is **any** doctor suggestion whose patient compliance can be measured: investigations, procedures, medications, physio, follow-up — not just surgery. QS-PITCH gains a `pitch_type` Choice: `investigation | procedure | surgery | medication | physio | follow_up | other` (plus the set's escapes). **Uptake is scored per pitch, not per consult.** Decision rows for `pitch_type` and uptake use subject type `pitch` (`<consult_key>#p<n>`). Open question 13 is **closed**.
+3. **Text to Jev is approved outright.** Full ZDR with TypeSafe. PHI cleared: "transcripts can go no problem." There is no GO left to obtain on the text lane. `ETA_JEV_TEXT_LANE` stays only as an operational on/off switch. The pre-STT timeline lane uses no text **by design** (it runs before STT exists). There is **no system-wide prohibition** on sending transcript text to Jev. Epic #23's "no transcript text to Jev" non-goal is scoped to that pre-STT timeline lane only. Name-masking is **optional hygiene**, not a requirement.
+4. **P0 (issue #56) includes both fixes.**
+   - **(a) `brain_svc` read failure.** Primary path: a new migration **GRANT SELECT** on `jev_decision`, `jev_window_signal`, `jev_window_text`, and any other tables `scribe_jev_decisions` / `scribe_jev_signals` read, to `brain_svc`. Alternative: move those reads to the app connection. Vinay's ruling names the grant, so the grant is the primary path.
+   - **(b) Mislabel.** In `safe-error.ts`, map Postgres errors (for example SQLSTATE 42501) to `db_error:<code>` instead of `jev_error`.
 
 **Evidence gathered for this draft (all read-only):**
 - Code read of ETA `main` @ `d94e724`.
@@ -36,9 +47,9 @@
 5. Confidence bands are set per use.
 
 **In scope: three starting uses.**
-- **U-A: encounter boundaries and doctor ID before STT.** Input is Nemotron turns plus Pulse anchors. Delivered **through epic #23 / PR #34**, not redesigned here.
+- **U-A: consult boundaries and doctor ID before STT.** A consult ends when the patient leaves the room. An encounter ends when the note is submitted; that later boundary is not a pre-STT target. Input is Nemotron turns plus Pulse anchors. Delivered **through epic #23 / PR #34**, not redesigned here.
 - **U-B: STT quality gating, and the Whisper-vs-Sarvam pick** (consult clips only, see §11).
-- **U-C: per-consult rubric scoring.** Surgical pitch, chair affect, and whether each doubt was answered.
+- **U-C: rubric scoring.** Chair affect and whether each doubt was answered, per consult and per doubt. A **pitch** is any doctor suggestion whose patient compliance can be measured (investigations, procedures, medications, physio, follow-up — not just surgery). `pitch_type` and uptake are scored **per pitch**.
 
 **Out of scope.**
 - Anything a clinician sees, until a per-use flag and a V ruling.
@@ -133,11 +144,11 @@
    - The Neon/pg `DatabaseError` has `name === "error"` **[inferred from pg-protocol driver behaviour; the literal string `jev_error: error` matches it]**. Hence `jev_error: error`.
    - The registry `failSafe` (`lib/mcp/registry.ts:149-160`) then wraps it as `{degraded:true}`.
 
-**Fix (P0, §13):**
-- **(a)** Move both reads to the app handle `sql`, like `windowDetailRow` in the same file. Keep the held-out SQL unchanged.
-  - Do **not** grant `brain_svc` SELECT. Migs 0057, 0072 and 0074 deliberately keep that role off bench and Jev tables.
-- **(b)** Stop labelling DB faults as Jev faults. In the Jev MCP `failSafe`, map a driver error with a SQLSTATE to `db_error: <sqlstate>`. This is a closed code, so it is still text-safe.
-- **(c)** Sweep the other `@/lib/brain/db` readers for the same wall: `lib/mcp/tools/{bench,voice,stores,fuse,fuse-report}.ts`, `lib/room-access/brain-state.ts`. A static test should pin which tables the brain pool may touch: `cue`, `room_day`, `visit`, `speaker_cluster`, `room` per 0053, plus anything granted later.
+**Fix (P0, §13; Vinay, 10 Oct 12:27 IST). Both (a) and (b) are in scope for issue #56.**
+- **(a) Primary: GRANT SELECT.** A new migration grants `brain_svc` SELECT on `jev_decision`, `jev_window_signal`, `jev_window_text`, and any other tables these two tools read (`bench_window` and `room_diarize_window` if the queries touch them). Vinay's ruling names the grant. Held-out SQL stays unchanged.
+  - **Alternative:** move `listJevDecisions` and the `scribe_jev_signals` query to the app handle `sql` from `@/lib/db`, like `windowDetailRow`. Use this only if the grant is not taken.
+- **(b)** Stop labelling DB faults as Jev faults. In `lib/jev/safe-error.ts`, map a Postgres/driver error that carries a SQLSTATE (for example 42501) to `db_error:<code>` instead of `jev_error: <Error.name>`. The Jev MCP `failSafe` keeps using that helper. The code is closed, so it stays text-safe.
+- **(c)** Sweep the other `@/lib/brain/db` readers for the same wall: `lib/mcp/tools/{bench,voice,stores,fuse,fuse-report}.ts`, `lib/room-access/brain-state.ts`. A static test should pin which tables the brain pool may touch: `cue`, `room_day`, `visit`, `speaker_cluster`, `room` per 0053, plus the tables granted in P0 (a).
 
 **Separately, for real Jev calls:**
 - `client.ts:72` sends `Bearer ` with an empty key when `TYPESAFE_API_KEY` is unset. That surfaces as an opaque `jev http 401`. The worker adds a typed `config_missing_key` check before the fetch (§9).
@@ -224,9 +235,9 @@ flowchart LR
 ### 3.4 Triggers per use
 | Use | Trigger (evidence ready) | Subject | Notes |
 |---|---|---|---|
-| U-A encounter timeline | **Nemotron turns landed** for every window overlapping a segment, **and** anchors loaded (`anchors.ts`). Gaps use the "window closed + 15 min" sliding segment | `encounter` with id `tl_<room_day_id>_<anchor_start_ms>` (PR #34 §6.6 contract; kept to avoid churn) | Pre-STT. The state is the timeline (no text). Owned by epic #23 ticket (f) #30 |
-| U-B STT quality | **STT done** for a consult clip (a `transcription_run` row reaches terminal). For the engine pick: **both** engine runs terminal | `stt_run` (single run) and `stt_pair` **[inferred]** (two runs on the same clip) | O4: Sarvam only on consult clips / doctor-app encounter audio, never room windows |
-| U-C consult rubric | **Consult closed**, with a consult span and transcript available through the `consult_text` reader | `consult`. For per-doubt items: `doubt` (`<consult_key>#d<n>`) **[inferred]** | The agent (llm_zdr) enumerates doubts. Jev classifies each one (CAA guide, "list-type items") |
+| U-A consult timeline | **Nemotron turns landed** for every window overlapping a segment, **and** anchors loaded (`anchors.ts`). Gaps use the "window closed + 15 min" sliding segment | Storage subject stays `encounter` with id `tl_<room_day_id>_<anchor_start_ms>` (PR #34 §6.6 contract; kept to avoid churn). The label it predicts is **consult end** | Pre-STT, so the state is the timeline and contains no text **by design** (STT does not exist yet). There is no system-wide ban on transcript text to Jev. Owned by epic #23 ticket (f) #30. Consult end = patient leaves the room. Encounter end = note submitted, and is not this question |
+| U-B STT quality | **STT done** for a consult clip (a `transcription_run` row reaches terminal). For the engine pick: **both** engine runs terminal | `stt_run` (single run) and `stt_pair` **[inferred]** (two runs on the same clip) | O4: Sarvam only on consult clips / doctor-app encounter audio, never room windows. Text to Jev is approved; `ETA_JEV_TEXT_LANE` is the operational switch |
+| U-C rubric | **Consult closed** (the patient has left the room) and a transcript is available through the `consult_text` reader. Note submission is the encounter end and is not this trigger | `consult` for affect. `pitch` (`<consult_key>#p<n>`) for `pitch_type` and uptake. `doubt` (`<consult_key>#d<n>`) **[inferred]** for per-doubt items | Code or the agent enumerates pitches and doubts. Jev classifies each one (CAA guide, "list-type items"). Uptake is one row per pitch |
 
 ### 3.5 Worker lifecycle (`jev_ask`)
 1. **Claim.** The runner claims the job (lease 240 s). The first step runs the `heldOut` guard (blind room-days refused by name).
@@ -313,14 +324,14 @@ flowchart LR
 
 ## 5. Decision tables
 
-Generalise `jev_decision` **additively** (one new migration, next free number, currently 0143, to be re-checked against open PRs; idempotent; no grants; drift test on every CHECK), and add a call ledger.
+Generalise `jev_decision` **additively** (one new migration, next free number, currently 0143, to be re-checked against open PRs; idempotent; this migration adds no grants; drift test on every CHECK), and add a call ledger. The P0 SELECT grant for `brain_svc` is a separate migration.
 
 ### 5.1 `jev_decision` (widened)
 Existing columns stay. Added:
 
 | column | type | notes |
 |---|---|---|
-| subject_type | CHECK widened | + `consult`, `stt_run`, `stt_pair`, `doubt`. Keep `encounter` for U-A (PR #34) and `window`/`turn`/`probe` for legacy. **[inferred]** Use `turn` only for its existing dual use; timelines are `encounter`, so no new "turn-timeline" type is needed |
+| subject_type | CHECK widened | + `consult`, `pitch`, `stt_run`, `stt_pair`, `doubt`. `pitch` is one doctor suggestion, id `<consult_key>#p<n>`. `pitch_type` and uptake are stored on `pitch`, not on `consult`. Keep `encounter` for the U-A timeline segment (PR #34 storage id) and `window`/`turn`/`probe` for legacy. **[inferred]** Use `turn` only for its existing dual use; timelines stay `encounter`, so no new "turn-timeline" type is needed. The clinical encounter (note submitted) is not this subject type |
 | question_set_id / question_set_version | text | null for legacy rows → backfilled as `legacy:<prompt_version>` |
 | question_set_sha256 | text | **pinned on every new row** |
 | order_variant | text | `fwd`, `rev`, `derived` (the order-averaged + calibrated row that consumers read). `prompt_version` also carries `+fwd`/`+rev` per CAA §2, so the existing unique key already separates orders |
@@ -344,7 +355,7 @@ Existing columns stay. Added:
 Rules:
 - **No transcript text, state text, note text or names in any column.** The `answer` and `evidence` JSON are validated against an allowlist (keys and closed values). A property test asserts that no string longer than 64 characters or containing whitespace sequences lands in `answer`/`evidence` **[inferred test design]**.
 - New unique key: `(subject_type, subject_id, question_id, question_set_sha256, order_variant, mode)`. Re-asking the same hash overwrites (a stability rerun writes to `jev_rerun` **[inferred]**, or is held in the bench file). A new hash is a new row, so history across versions is kept. Today's key (by `prompt_version`) is kept as a partial unique index for legacy rows only.
-- `scribe_jev_decisions` and `scribe_jev_signals` must use the app handle (P0).
+- `scribe_jev_decisions` and `scribe_jev_signals` keep reading through `brain_svc` after the P0 **GRANT SELECT** (primary). Moving those reads to the app handle is the alternative (P0).
 
 ### 5.2 `jev_call` (ledger, one row per systemOne call)
 `id, job_id, use, mode, question_set_sha256, subject_count, question_count, model_requested, model_returned, http_status, error_class (§9), latency_ms, input_tokens, output_tokens, cost_usd, state_bytes, mock, breaker_state, created_at (IST day derived)`.
@@ -375,9 +386,10 @@ No body, no state and no key. This table is the cost ledger (§10) and the dead-
 No text, and no patient ids beyond the existing ETA subject ids. Labels from Pulse/PQM are derived by read-only joins, and **Pulse code is never touched**.
 
 ### 6.2 Truth joins (views, read-only)
-- **U-A:** `jev_decision(encounter)` ⋈ `eta_encounter_windows` (Start/End click, `close_kind` from #31) ⋈ PQM `called_at`/`completed_at` (Metabase db 13, per PR #34 §11) ⋈ human gold boundaries. This reuses PR #34's T1/T2 truth sets; it does not redefine them.
+- **U-A consult end:** truth is **the patient leaves the room**. `u10_end_row` is scored against that row. Joins stay `jev_decision(encounter)` ⋈ `eta_encounter_windows` (Start/End click, `close_kind` from #31) ⋈ PQM `called_at`/`completed_at` (Metabase db 13, per PR #34 §11) ⋈ human gold boundaries. Those sources are proxies for consult end only when they match the patient leaving. Doctor-alone time after the patient has left is after the consult end and is not the target.
+- **Encounter end:** truth is **note submission**. It is a different boundary. It is not a QS-TIMELINE label and is not what `u10_end_row` predicts.
 - **U-B:** `jev_decision(stt_run|stt_pair)` ⋈ `stt_gold_window` (mig 0072) / WER from `lib/stt/wer.ts` ⋈ `hallucination-collapse` measures ⋈ the `transcript-quality` heuristic flag.
-- **U-C:** `jev_decision(consult|doubt)` ⋈ `rubric_result` (agent `llm_zdr` scores) ⋈ human adjudicated gold (CAA's dev/test splits).
+- **U-C:** `jev_decision(consult|pitch|doubt)` ⋈ `rubric_result` (agent `llm_zdr` scores) ⋈ human adjudicated gold (CAA's dev/test splits). Uptake and `pitch_type` join on `pitch`, not on the consult.
 
 ### 6.3 Per-use confidence bands
 - Stored on the question set or question (§4). Applied at write time to `band`.
@@ -439,7 +451,7 @@ A **question set (QS)** is one versioned manifest. It maps directly onto ETA's e
 |---|---|---|
 | `stt_usable` (QS-STT-GATE) | `unusable_*` or `no_speech` | Every text set (PITCH, AFFECT, DOUBT) returns `abstain:stt_unusable`. `partly_usable` runs but sets a flag |
 | `u10_kind` (QS-TIMELINE) | ≠ `consultation` | End, start and walk-in questions are set to `not_applicable` |
-| `pitch_kind` (QS-PITCH) | not `surgery` (plus `procedure` if V rules it in) | The 8 pitch items, urgency and recovery are set to `not_applicable` |
+| `pitch_type` (QS-PITCH) | escape (`no_pitch`, `insufficient_evidence`) or no enumerated pitch | Uptake and the other per-pitch items are `not_applicable`. Any of `investigation`, `procedure`, `surgery`, `medication`, `physio`, `follow_up`, `other` is a pitch and is scored. Surgery is not a special gate |
 | `recovery_discussion` | `none` / N/A | `recovery_appropriateness` = `not_assessable` |
 | `cost_discussed` | `no` | `cost_answered` = `no_cost_question` |
 | deterministic pre-gates | patient-side speech < 3 turns, or state over budget | Skip the call and abstain with a reason code. Never send it to Jev |
@@ -450,9 +462,9 @@ A **question set (QS)** is one versioned manifest. It maps directly onto ETA's e
 
 | Set | Unit (subject_type) | State | Questions | Frozen file today | Readiness |
 |---|---|---|---|---|---|
-| QS-TIMELINE | encounter segment (`encounter`) | timeline JSON (#29), **no text** | 9 (5 from u10 + 4 new) | none. Proposed as `u10-timeline-v2` inside the #30 wording trial | research |
+| QS-TIMELINE | timeline segment (storage `encounter`) | timeline JSON (#29), **no text by design** (pre-STT) | 9 (5 from u10 + 4 new) | none. Proposed as `u10-timeline-v2` inside the #30 wording trial | research |
 | QS-STT-GATE | window or aligned span (`window`) | Whisper and Sarvam spans, native + EN, plus code feature buckets | 3 | none | research |
-| QS-PITCH | consult (`encounter`) | transcript-v1 | 17 (gate + 16) | `questions-pitch-v8.json` / `v8r.json` (sha `c98c01c1…` / `8bb05dbc…`) | mixed, see §6 |
+| QS-PITCH | pitch (`<consult_key>#p<n>`) | transcript-v1 | 18 (`pitch_type` + gate + 16) | `questions-pitch-v8.json` / `v8r.json` (sha `c98c01c1…` / `8bb05dbc…`) are the prior per-consult files | mixed, see §6 |
 | QS-AFFECT | consult (`encounter`) | transcript-v1 (same request as PITCH) | 4 | inside v8 (distress / confusion / frustration / reassurance) | **research: not production-ready** |
 | QS-DOUBT | doubt (`probe` or a new `doubt`) | `{doubt text, time, excerpt −45/+150 s}` | 4 (+1 proposed) | `questions-doubt-d8.json` / `d8r.json` (sha `df4bf6c8…` / `f61e682d…`) | mixed, see §8 |
 
@@ -460,7 +472,7 @@ PITCH and AFFECT share one state, so they go in one request and are registered a
 
 ### 4. QS-TIMELINE: improvements to #30 `u10-timeline-v1`
 
-**Purpose.** Infer consult end (mainly), start offset, segment kind, doctor voice, walk-ins, phone calls and whether the same or a new patient follows a gap, all from the #29 timeline. Jev's answers are inputs to `fusion-timeline`; code decides (#30 rule "Jev may veto, never perform").
+**Purpose.** Infer consult end (mainly), start offset, segment kind, doctor voice, walk-ins, phone calls and whether the same or a new patient follows a gap, all from the #29 timeline. A **consult** ends when the patient leaves the room. An **encounter** ends when the note is submitted, which this pre-STT set does not predict. Jev's answers are inputs to `fusion-timeline`; code decides (#30 rule "Jev may veto, never perform").
 **Inputs.** The #29 segment JSON only, with two state changes (below).
 **Outputs.** One `jev_decision` row per question per order, plus the derived row. The normalised view in PR #34 §7.3 gains `start_offset`, `doctor_letter`, `walk_in`, `after_gap` and `abstain_reasons`.
 **Slots into #30, not alongside it.** v1 stays as wording A in the #30 trial. These changes are wordings B and C, registered as `u10-timeline-v2`. The winner is picked on dev and confirmed on test (calibration spec §2). Fusion, the runner and storage stay as #30 specifies.
@@ -483,13 +495,16 @@ PITCH and AFFECT share one state, so they go in one request and are registered a
 +                        + no_consultation_in_segment (N/A) + insufficient_evidence
 +                        asked fwd (chronological) + rev (reverse-chronological); probabilities averaged
 +                        trial arm A keeps all rows (v1), arm B uses candidates
++                        CONSULT end = the row the patient leaves the room.
++                        ENCOUNTER end = note submitted, and is not an option here.
 -u10_end_signal  choice  doctor_alone_then_quiet | voices_leave_then_new_voice | long_silence
 -                        | tape_or_mic_loss | end_click_consistent | cannot_tell
 +u10_end_signal  choice  patient_side_voices_stop_doctor_alone | all_voices_stop_long_quiet
 +                        | new_voice_arrives | tape_or_mic_loss | cut_by_next_start
 +                        | not_applicable | insufficient_evidence
-+                        tie rule: if patient-side voices stop and the doctor talks alone, choose
++                        tie rule: if the patient leaves and the doctor talks alone, choose
 +                        patient_side_voices_stop_doctor_alone even if a quiet stretch follows.
++                        That signal marks consult end (patient left). It is not "doctor finishes the note".
 +                        Explanatory only: fusion does not rank on it, but it is logged for the veto audit
 -u10_late_start  noul    "Did the consultation start meaningfully later than the anchor?"
 +u10_start_offset choice before_anchor | at_anchor (within ±1 min) | late_1_to_3_min | late_over_3_min
@@ -531,14 +546,15 @@ Deduplicate, then pad with ±1 neighbour rows up to 12. This applies the guide's
   - `null` means no evidence, not silence.
   - Examination silences of 1–4 minutes with the same voices afterwards are part of the consult.
   - The next patient's record opening (`next_start`) usually comes after this consult has ended.
-- **question:** In which row does THIS patient's consultation end?
+- **question:** In which row does THIS consult end (the patient leaves the room)?
 - **rules:**
-  - The end is the last row where this consult's patient-side voices are still present with the doctor.
-  - The doctor talking alone afterwards (typing, dictating, calling the next patient) is after the end.
+  - A consult ends when the patient leaves the room (Vinay, 10 Oct 12:27 IST). The end row is the last row in which the patient is still in the room.
+  - The doctor talking alone afterwards (typing, dictating, calling the next patient) is after the consult end.
+  - Note submission is the encounter end. It is not this question, and it is not an `u10_end_row` choice.
   - A brief staff voice is not a new patient.
-  - Choose `continues_past_segment` only if this consult's voices are still active in the last row.
+  - Choose `continues_past_segment` only if this patient is still in the room in the last row.
 
-The rule "the doctor alone afterwards is after the end" needs V's ruling (see the handoff notes).
+Open question 12 is closed by that ruling.
 
 **Dev/test agreement:** none yet. No Jev run exists on timelines: production has 1 October Nemotron row and this lane has no key.
 **Readiness:** **research** for every question. `u10_end_row`, `u10_kind` and `u10_start_offset` are candidates for "second scorer" once they pass the gate in the calibration spec §8.
@@ -562,21 +578,30 @@ The rule "the doctor alone afterwards is after the end" needs V's ruling (see th
 **Dev/test agreement:** none. There are no labels, and only 8 Sarvam clips exist in our 96-clip set.
 **Readiness:** **research.** It becomes a gate only after the R-STT reference set exists (calibration spec §1) and `stt_usable` passes the gate. Until then the gate runs in log-only mode and does not block the text sets.
 
-### 6. QS-PITCH: surgical-pitch v0.1 (Vinay's 10 Oct rulings)
+### 6. QS-PITCH (v0.1 measurements below; scope ruled 10 Oct 12:27 IST)
 
-**Purpose.** Second scorer for the v0.1 surgical-pitch rubric beside the LLM agent, which stays primary.
-**Inputs.** transcript-v1, the whole clip (a pitch-window filter cost 4–10 correct answers on dev). Names are masked to `[name]` and digit runs to `[NUM]`.
-**Outputs.** Per-item labels mapped to rubric codes, the per-clip composite `all_four` (computed in code from benefits AND risks under v0.1 AND alternatives AND timing), and headline rates per doctor.
-**Rulings encoded (10 Oct):**
+**Purpose.** Second scorer beside the LLM agent, which stays primary. A **pitch** is any doctor suggestion whose patient compliance can be measured: investigations, procedures, medications, physio, follow-up, and surgery. Not surgery alone.
+**Inputs.** transcript-v1, the whole clip (a pitch-window filter cost 4–10 correct answers on dev). Name-masking to `[name]` and digit-run masking to `[NUM]` are **optional hygiene**, not a requirement.
+**Subject.** One `pitch` per suggestion, id `<consult_key>#p<n>`. Code or the agent enumerates pitches. Jev does not. `pitch_type` and uptake are one decision per pitch. Consult-level composites (`all_four`, headline rates) are computed in code from those rows.
+**Outputs.** Per-pitch labels mapped to rubric codes, the code-side composite `all_four` (benefits AND risks under v0.1 AND alternatives AND timing), and headline rates per doctor.
+**Rulings encoded (10 Oct, earlier in the day, still in force):**
 1. **Recovery burden is not a risk.** It is in the Choice rules and the option `not` text, with the excluded cases listed: time off, no lifting, rest, physio, diet, dressing, stay, soreness. Recovery has its own item, `recovery_discussion` (`none` / `mentioned_only` / `adequate` / `thorough_tailored`), plus `recovery_appropriateness`.
 2. **Fear-based urgency:** `fear_based` / `urgent_clinical` / `explicitly_non_urgent` / `neutral_or_unstated`, with the tie rule ("not an emergency" plus a scare scenario = fear-based) and its contrast exclusions: a scenario told to explain why this patient can wait; a fear voiced by the patient; an honest finding for a test; a genuinely acute case.
 3. **Per-doubt scoring is primary** and lives in QS-DOUBT. The clip-level `doubt_voiced` / `doubt_unanswered` Nouls (τ = 0.58) are kept only for continuity. Proposal for v9: retire them and compute the per-clip all-answered rate in code from the QS-DOUBT results.
+
+**Pitch scope (Vinay, 10 Oct 12:27 IST), in force.** Open question 13 is closed.
+- Add `pitch_type` (Choice): `investigation | procedure | surgery | medication | physio | follow_up | other`, plus `no_pitch` and `insufficient_evidence`.
+- Any of those seven types is a pitch. The old surgery-only gate is retired.
+- Uptake is scored **per pitch**, not per consult.
+
+The dev/test table below is the **prior per-consult surgical-pitch run**. It is not the ruled denominator.
 
 Dev = 29 clips, scored against labels CAA adjudicated (v7 items: n 27–29; v8 items: 20 scorable pitches). Test = 67 clips (38 scorable pitches), run once, scored against agent labels.
 
 | question_id | Form | Options (Jev → rubric) | Dev | Test agreement (κ) | Readiness |
 |---|---|---|---|---|---|
-| `pitch_kind` (GATE) | Choice | surgery, procedure_or_investigation, fragment_only, no_pitch, insufficient_evidence | 21/29 | 70% (0.55); AUROC 0.87 | ready with spot checks, **once V rules on investigations** (Jev calls 75 pitches vs the agent's 58) |
+| `pitch_type` | Choice | investigation, procedure, surgery, medication, physio, follow_up, other + `no_pitch`, `insufficient_evidence` | — | — | ruled 12:27 IST; not yet run. This is the denominator |
+| `pitch_kind` (prior gate) | Choice | surgery, procedure_or_investigation, fragment_only, no_pitch, insufficient_evidence | 21/29 | 70% (0.55); AUROC 0.87 | historical per-consult row. Superseded as the gate by `pitch_type`. Investigations count, and so do procedure, medication, physio, follow-up and other |
 | `pb_benefits` | Choice | yes/no/N/A/insufficient | 23/29 | 67% (0.49) | second scorer |
 | `pb_risk_any` (v0.1) | Choice | yes/no/N/A/insufficient | 95% (0.89) | 89% (0.75); 92% after adjudication | **ready with spot checks** (confirm every Jev "yes" for a month) |
 | `pb_real_complication` | Choice | same | 90% (0.79) | 89% (0.75) | **ready with spot checks** (coincides with risk_any under v0.1; both kept) |
@@ -586,7 +611,7 @@ Dev = 29 clips, scored against labels CAA adjudicated (v7 items: n 27–29; v8 i
 | `recovery_discussion` | Choice (ordinal) | none / mentioned_only / adequate / thorough_tailored + escapes | 95% (0.93) | 68% (0.57); 94% within one level; weighted κ 0.67 | second scorer. It calls `adequate` with no audible post-op course, so add the rule "only the course after the operation" in v9 |
 | `recovery_appropriateness` | Choice | appropriate / minimising_or_misleading → `misleading_minimising` / overstated / no_recovery_discussion → `not_assessable` + escapes | 80% (0.0) | 85% (0.0) | **research.** Positives are too rare: κ 0, no signal |
 | `nonsurgical` | Choice | yes/no/N/A/insufficient | 24/29 | 75% (0.62) | ready with spot checks |
-| `uptake` | Choice | accept / hedge / defer / question / decline → `refuse` / unheard + escapes | 18/28 | 63% (0.48) | second scorer. v9 should add `cost_block`, since the rubric has a `cost` uptake code that Jev currently folds into `question` |
+| `uptake` | Choice, **per pitch** | accept / hedge / defer / question / decline → `refuse` / unheard + escapes | 18/28 | 63% (0.48) | second scorer. Scored per pitch, not per consult (12:27 IST). The 18/28 figure is the old per-consult run. v9 should add `cost_block`, since the rubric has a `cost` uptake code that Jev currently folds into `question` |
 | `decider` | Choice (order-fragile) | patient / family / shared / unclear + escapes | 22/29 | 79% (0.66) | ready with spot checks (order-balanced only) |
 | `teach_back` | Choice | none / partial / full + escapes | 26/29 | 88% (κ −0.02: rare positives) | second scorer (screen for rare partial or full) |
 | `cost_discussed` | Choice | yes / no / insufficient | 27/29 | 90% (0.79) | **ready with spot checks** |
@@ -594,7 +619,7 @@ Dev = 29 clips, scored against labels CAA adjudicated (v7 items: n 27–29; v8 i
 | `doubt_voiced`, `doubt_unanswered` | Noul ×2, τ 0.58 | n/a | 18/27 (in-sample τ) | 60% (0.36) | superseded by QS-DOUBT; retire in v9 |
 
 **v9 candidates.** Each is a MAJOR or MINOR bump with the re-eval gate. Not run yet.
-1. Align `pitch_kind` with v0.1 `recommendation_kind`: `surgery`, `therapeutic_procedure`, `investigation`, `conservative`, `referral`, `no_surgery`, `fragment_only` + escapes. Code gates the pitch items on surgery (plus therapeutic procedure if V rules it in).
+1. `pitch_type` is already ruled: `investigation | procedure | surgery | medication | physio | follow_up | other`. Do not gate pitch items on surgery. The old `pitch_kind` option list is historical.
 2. The recovery "post-op only" rule.
 3. Uptake `cost_block`.
 4. Rename the recovery_appropriateness options to the rubric codes. Code mapping is acceptable until then.
@@ -638,13 +663,17 @@ d8 breaks principle 5: `doubt_type`, `raised_by` and `answer_quality` have no `i
 
 ### 1. Ground truth
 
+**Boundaries (Vinay, 10 Oct 12:27 IST).** A **consult** ends when the patient leaves the room. An **encounter** ends when the note is submitted. Timeline `u10_end_row` and consult-end error are scored against patient-leaves-the-room. Note submission is the encounter-end label and is not the `u10_end_row` target. Open question 12 is closed.
+
+**Pitch denominator (same ruling).** A pitch is any doctor suggestion whose patient compliance can be measured. Uptake and `pitch_type` are scored per pitch. The R-CONSULT size below was planned around a surgical pitch; resample the pitch stratum on this denominator. Open question 13 is closed.
+
 | Reference set | Size | Sampling | Labels | Double-scored |
 |---|---|---|---|---|
-| **R-CONSULT** (PITCH, AFFECT, DOUBT) | **240 consults**, about 145 with a surgical pitch | Stratified by **doctor** (no doctor over 12%; at least 5 for each doctor with 10 or more consults a month), **language** (≥30% Indic: Hindi, Kannada, other; oversample Sarvam), **month** (≥3 months: Sep, Oct, Nov), transcript source and pitch / no pitch. Phase A = clinician scoring of the existing 96 clips (keeps the current split). Phase B = 144 new consults from Nov, which become the fresh test set | Clinicians score rubric v0.1 and chair v0.2, blind to agent and Jev, and **enumerate doubts themselves** with timestamps | **60 consults (25%)** scored by 2 clinicians independently, then adjudicated (V settles). Report inter-rater κ per item: it is the ceiling Jev is judged against |
+| **R-CONSULT** (PITCH, AFFECT, DOUBT) | **240 consults**. The "about 145 with a surgical pitch" figure is the old stratum; under the 12:27 ruling the stratum is consults with at least one measurable pitch, and uptake labels are per pitch | Stratified by **doctor** (no doctor over 12%; at least 5 for each doctor with 10 or more consults a month), **language** (≥30% Indic: Hindi, Kannada, other; oversample Sarvam), **month** (≥3 months: Sep, Oct, Nov), transcript source and pitch / no pitch. Phase A = clinician scoring of the existing 96 clips (keeps the current split). Phase B = 144 new consults from Nov, which become the fresh test set | Clinicians score the pitch rubric and chair v0.2, blind to agent and Jev, **enumerate each pitch** (`pitch_type` and uptake) and **enumerate doubts themselves** with timestamps | **60 consults (25%)** scored by 2 clinicians independently, then adjudicated (V settles). Report inter-rater κ per item: it is the ceiling Jev is judged against |
 | **R-STT** | 300 aligned spans from ≥40 consults with both engines | Oversample disagreement spans with clinical tokens (negation, laterality, drugs, numbers). At least 100 spans per major language | A bilingual clinician reviewer labels usable / pick / meaning-change | 60 spans |
-| **R-TIMELINE T1** | every eligible PQM consult (#32 rules) | as #32 | PQM `called_at` / `completed_at` | n/a |
-| **R-TIMELINE T2** | every `endConsult` close (38 clean so far, growing) | as #32 | real End click | n/a |
-| **R-TIMELINE T3** (new) | 150 segments (75 dev / 75 test), **split by room-day** | Room (OPD1/3/4/5/6/7), mic (TONOR / C270), parties (2 / 3 / 4+), back-to-back vs gap, missing-End vs clicked | Listened labels: start and end (±10 s), kind, doctor letter, walk-ins, phone, same vs new after a gap | 30 segments |
+| **R-TIMELINE T1** | every eligible PQM consult (#32 rules) | as #32 | PQM `called_at` / `completed_at`, used as a consult-end proxy only when `completed_at` matches the patient leaving the room. It is not note submission | n/a |
+| **R-TIMELINE T2** | every `endConsult` close (38 clean so far, growing) | as #32 | real End click, a consult-end proxy only when the click is the patient leaving. Doctor-finishes-alone and note submission are not this label | n/a |
+| **R-TIMELINE T3** (new) | 150 segments (75 dev / 75 test), **split by room-day** | Room (OPD1/3/4/5/6/7), mic (TONOR / C270), parties (2 / 3 / 4+), back-to-back vs gap, missing-End vs clicked | Listened labels: start and **consult end = patient leaves the room** (±10 s), kind, doctor letter, walk-ins, phone, same vs new after a gap. Encounter end (note submitted) is labelled separately and is not `u10_end_row` truth | 30 segments |
 
 **Why these sizes.** At 85% accuracy, n ≈ 200 gives a 95% CI of about ±5 points. n = 60 double-scored gives a κ standard error of about 0.08–0.10. 300 calibration-plus-test labels per question is the floor for isotonic regression.
 
@@ -676,7 +705,8 @@ d8 breaks principle 5: `doubt_type`, `raised_by` and `answer_quality` have no `i
 | Calibration (every question) | **ECE** (15 equal-mass bins) and Brier, before and after recalibration | **Reliability curve**; AUROC of calibrated p for correctness; risk–coverage curve |
 | Stability | Forward-vs-reversed agreement; rerun agreement on a 10% weekly sample | Probability jitter (expected 0.01–0.04) |
 | **Per-language breakdown** | Every metric by `lang_mix` (en / hi / kn / mixed) and by `transcript_source` (whisper / sarvam) | Per doctor. Cells with n < 20 are flagged and never ranked |
-| QS-TIMELINE | **Boundary error in seconds** for start and end: median, p90, % within ±30 s and ±60 s. Reported separately for missing-End consults (T1/T3) and clicked consults (T2) | `end_row` within ±1 row; `kind` accuracy and κ; veto and contradiction counts. E-7 recall and precision come from #32 |
+| QS-TIMELINE | **Boundary error in seconds** for start and **consult end (patient leaves the room)**: median, p90, % within ±30 s and ±60 s. Reported separately for missing-End consults (T1/T3) and clicked consults (T2). Encounter end (note submitted) is not this metric | `end_row` within ±1 row of the patient leaving; `kind` accuracy and κ; veto and contradiction counts. E-7 recall and precision come from #32 |
+| QS-PITCH | `pitch_type` accuracy; **uptake per pitch** (not per consult) | The prior per-consult surgical-pitch numbers stay historical |
 | QS-DOUBT | Extraction recall and precision vs the clinician list (match = same consult, ±30 s, same concept), then per-doubt classification | % answered fully: Jev vs clinician vs agent |
 | QS-STT-GATE | Precision and recall for `usable`; **sensitivity for negation flips** (target ≥ 0.90) | False-flag rate per 100 spans |
 
@@ -761,8 +791,8 @@ Jev spend is negligible. Clinician labelling time (§1) is the real budget line.
 | **P0: Bench (now)** | Offline runs on the box (done for PITCH and DOUBT); u10 v1 vs v2 wording trial on T3 dev | Registry manifests for all five sets with hashes; model pinned; split files frozen; u10 trial on ≥75 dev segments with a test-run plan; v8 and d8 hashes recorded in a FROZEN file |
 | **P1: Shadow in Scribe** | Designer wiring: order pairs, derived rows, gates in code, calibration hook; `persist` behind flags | Replaying the 96 clips reproduces box v8/d8 labels with ≥ 98% identity (the rest within jitter); every `jev_decision` row carries `prompt_version` and `q_hash`; no state text in logs; abstain reasons logged; u10 v2 runs on ≥5 room-days |
 | **P2: Reference + calibration** | R-CONSULT Phase A (96) + Phase B (144); T3 150; R-STT 300 | Inter-rater κ reported per item; calibrators fitted; ECE ≤ 0.05 after calibration on "ready" items; per-language tables with Indic n ≥ 60; extraction recall ≥ 0.85 for doubts |
-| **P3: Limited auto-accept** | Ready items only: risk_any, real_complication, cost_discussed, nonsurgical, decider, pitch_kind (after the ruling), doubt_type, raised_by | On clinician test, each item's accuracy ≥ 85% and κ ≥ 0.6 **and** within 0.1 κ of inter-rater κ; ≥95% selective accuracy at ≥50% coverage; no language bucket more than 10 points below English; 1 week of shadow agreement with the agent; V sign-off |
-| **P3-T: Timeline** | u10 v2 as an input to fusion (#30 rank 2) | On T3 test and T1 missing-End consults, the A5 median end error beats A4 (rules, no Jev) by **≥ 30 s**, and the #34 §11 bar holds (A5 beats A3 by ≥ 60 s; precision ≥ A3; T2 no worse than A2 + 30 s); `end_row` within ±1 row ≥ 70%; vetoes < 15% of Jev ends; survives the shifted-anchor control |
+| **P3: Limited auto-accept** | Ready items only: risk_any, real_complication, cost_discussed, nonsurgical, decider, `pitch_type`, per-pitch uptake, doubt_type, raised_by | On clinician test, each item's accuracy ≥ 85% and κ ≥ 0.6 **and** within 0.1 κ of inter-rater κ; ≥95% selective accuracy at ≥50% coverage; uptake's denominator is the pitch; no language bucket more than 10 points below English; 1 week of shadow agreement with the agent; V sign-off |
+| **P3-T: Timeline** | u10 v2 as an input to fusion (#30 rank 2) | On T3 test and T1 missing-End consults, the A5 median **consult-end** error (patient leaves the room) beats A4 (rules, no Jev) by **≥ 30 s**, and the #34 §11 bar holds (A5 beats A3 by ≥ 60 s; precision ≥ A3; T2 no worse than A2 + 30 s); `end_row` within ±1 row of the patient leaving ≥ 70%; vetoes < 15% of Jev ends; survives the shifted-anchor control. Note submission is not the scored end |
 | **P4: Steady state** | Second-scorer items promoted one by one; STT gate goes live as a gate | Drift dashboard live; monthly spot checks green for 2 months; each promotion goes through §6. AFFECT and appropriateness stay research until their own bar (QS-AFFECT; ≥ 10 clinician positives) is met |
 
 ---
@@ -776,7 +806,7 @@ Jev spend is negligible. Clinician labelling time (§1) is the real budget line.
 | `ETA_JEV_MODEL` | **set to `jev-1.13.0`** | Pin |
 | `JEV_WORKER_ENABLED` | off | Sweeper and `jev_ask` run at all |
 | `JEV_USE_ENCOUNTER_TIMELINE` | off | U-A shadow. Works alongside PR #34's `ENCOUNTER_TIMELINE_SHADOW` (that flag governs fusion writes; this one governs Jev asks) |
-| `ETA_JEV_TEXT_LANE` | off | **Master switch for every set that sends transcript text** (STT gate, PITCH, AFFECT, DOUBT). Consult clips only. **Needs V's GO** (§16.2) |
+| `ETA_JEV_TEXT_LANE` | off | **Operational on/off switch** for every set that sends transcript text (STT gate, PITCH, AFFECT, DOUBT). Consult clips only. Text to Jev is already approved (§16.2) |
 | `JEV_USE_STT_QUALITY` | off | U-B shadow. Requires `ETA_JEV_TEXT_LANE` |
 | `JEV_USE_CONSULT_RUBRIC` | off | U-C shadow. Requires `ETA_JEV_TEXT_LANE` |
 | `JEV_*_LIVE` (one per use) | off | Allows `mode=live` for a set whose status is `live`. Requires a V ruling |
@@ -904,14 +934,14 @@ Only allowlisted codes reach logs, traces, MCP and Bench (`safe-error.ts` discip
 ---
 
 ## 12. PHI / ZDR notes
-- **Account.** V's TypeSafe account is ZDR and PHI-approved. The key lives only in Vercel env `TYPESAFE_API_KEY`. It is never logged, traced, stored in DB rows, put in MCP output or posted to the bus (the existing client discipline). **[inferred]** Confirm the BAA/DPA scope covers all three uses and TypeSafe's processing region (open question).
+- **Account.** V's TypeSafe account is full ZDR, and PHI for transcript text is cleared (Vinay, 10 Oct 12:27 IST: "transcripts can go no problem."). The key lives only in Vercel env `TYPESAFE_API_KEY`. It is never logged, traced, stored in DB rows, put in MCP output or posted to the bus (the existing client discipline). Processing region stays open question 5.
 - **What leaves ETA:**
-  - **U-A:** the timeline only (relative times, segment letters, `DOC`/`?`, counts). By construction there is no PHI (PR #34 allowlist property test).
-  - **U-B and U-C:** transcript text (native script plus `[EN:]` gloss per the CAA guide). This is PHI, allowed **only** through the text lane (§16.2) to the ZDR account, and only after V's GO. No names or ids are added to the state beyond what speech contains. No clock times, room names or consult ids appear in the state.
+  - **U-A:** the timeline only (relative times, segment letters, `DOC`/`?`, counts). This lane uses no text **by design**, because it runs before STT exists (PR #34 allowlist property test). That is not a system-wide prohibition on transcript text.
+  - **U-B and U-C:** transcript text (native script plus `[EN:]` gloss per the CAA guide). Vinay approved this outright (10 Oct 12:27 IST): full ZDR with TypeSafe, PHI cleared ("transcripts can go no problem"). `ETA_JEV_TEXT_LANE` only switches the lane on or off. No ids are added to the state beyond what speech contains. No clock times, room names or consult ids appear in the state. Name-masking is optional hygiene, not a requirement.
 - **What stays.** Decisions, calls, gold labels and drift reports hold ids, closed codes, numbers and HMAC hashes. They never hold text. Evidence links are ids.
 - **Held-out room-days.** Every `jev_ask` declares `roomData:true` with a `heldOut` guard. Blind days are refused at submit and at the first step. MCP reads keep the existing held-out SQL.
 - **Bus and CAA.** CAA receives ids, decisions, counts and scores via MCP reads. It does not receive transcript text from ETA through this worker.
-- **Role separation.** No new DB role. The worker writes through the app handle. `brain_svc` stays off Jev tables (P0 fix (a) keeps it that way).
+- **Role separation.** No new DB role. The worker writes through the app handle. P0's primary path **GRANT SELECT**s `jev_decision`, `jev_window_signal`, `jev_window_text`, and any other tables those read tools touch, to `brain_svc`. The app-connection move is the alternative.
 
 ---
 
@@ -920,16 +950,16 @@ Only allowlisted codes reach logs, traces, MCP and Bench (`safe-error.ts` discip
 ### P0: fix `jev_error` and smoke test (no Jev behaviour change)
 | # | Slice | Acceptance criteria |
 |---|---|---|
-| P0.1 | `listJevDecisions` (`tool-reads.ts:43`) and the `scribe_jev_signals` query (`jev.ts:115`) move to `sql` from `@/lib/db`. The held-out SQL is unchanged | `scribe_jev_decisions {}` returns `ok:true` with 100 rows, newest first. Filtering `question_id=u1_phase` returns rows with `prompt_version='u1-phase-w1'`. `scribe_jev_signals` on a room-day with signals returns its rows. A blind room-day is still refused or filtered. A unit test fails if either function imports `@/lib/brain/db` |
-| P0.2 | The Jev MCP `failSafe` maps driver errors to `db_error:<sqlstate>`. Jev classes are unchanged | A test with a fake `DatabaseError{code:'42501', name:'error'}` gives `db_error: 42501`. No provider text reaches the message (the existing W27.7 tests stay green) |
-| P0.3 | Sweep the brain-pool readers. Add a static allowlist test of tables the brain pool may touch | A list of offenders is posted in the PR (or "none"), and each offender is fixed or ticketed. CI fails on a new brain-pool read of an app-owned table |
+| P0.1 | **Primary:** a new migration GRANT SELECT on `jev_decision`, `jev_window_signal`, `jev_window_text`, and any other tables `listJevDecisions` (`tool-reads.ts:43`) and `scribe_jev_signals` (`jev.ts:115`) read, to `brain_svc`. **Alternative:** move those two reads to `sql` from `@/lib/db`. Held-out SQL unchanged either way. Vinay's ruling names the grant | On the **deployed** build, both MCP read tools return rows: `scribe_jev_decisions {}` returns `ok:true` with 100 rows, newest first, and `scribe_jev_signals` on a room-day with signals returns its rows. Filtering `question_id=u1_phase` returns rows with `prompt_version='u1-phase-w1'`. A blind room-day is still refused or filtered |
+| P0.2 | In `lib/jev/safe-error.ts`, map a Postgres/driver error that carries a SQLSTATE to `db_error:<code>` instead of `jev_error`. Jev classes are unchanged. The Jev MCP `failSafe` uses that helper | A forced permission failure (`DatabaseError{code:'42501', name:'error'}`) shows `db_error:42501`, not `jev_error`. No provider text reaches the message (the existing W27.7 tests stay green) |
+| P0.3 | Sweep the brain-pool readers. Add a static allowlist test of tables the brain pool may touch. The allowlist includes the tables granted in P0.1 | A list of offenders is posted in the PR (or "none"), and each offender is fixed or ticketed. CI fails on a new brain-pool read of a table outside that allowlist |
 | P0.4 | `config_missing_key` check before fetch. The mock no longer echoes `req.model`. Set `ETA_JEV_MODEL=jev-1.13.0` (env change, V/ops) | A missing key gives a typed error with no network call (test). Mock rows always say `jev-mock` |
 | P0.5 | Smoke test: an operator-run script (pattern of `scripts/jev-u6-bench.ts`) sends **synthetic, non-PHI** fixtures through `askJev(..., {persist:false})` with the real key on a preview or local env | 1 call `ok`, `model_returned='jev-1.13.0'`, latency < 1 s, tokens > 0. The output is numbers only, and a metadata-only trace row exists |
 
 ### P1: worker and storage
 | # | Slice | Acceptance criteria |
 |---|---|---|
-| P1.1 | Migration: `jev_question_set`, `jev_question`, `jev_question_set_event`, `jev_call`, `jev_gold_label`, `jev_breaker`, `jev_drift_report`, plus additive `jev_decision` columns and widened CHECK. Idempotent, no grants | Applies twice cleanly. The CHECK drift test matches `JEV_SUBJECT_TYPES`. Legacy rows are backfilled with `question_set_id='legacy:<prompt_version>'`. The existing `askJev` path still writes |
+| P1.1 | Migration: `jev_question_set`, `jev_question`, `jev_question_set_event`, `jev_call`, `jev_gold_label`, `jev_breaker`, `jev_drift_report`, plus additive `jev_decision` columns and widened CHECK (including `pitch`). Idempotent. This migration adds no grants; the P0 SELECT grant is its own migration | Applies twice cleanly. The CHECK drift test matches `JEV_SUBJECT_TYPES`, including `pitch`. Legacy rows are backfilled with `question_set_id='legacy:<prompt_version>'`. The existing `askJev` path still writes |
 | P1.2 | Question-set files, loader, canonical hash, DB sync. A legacy bridge for in-code prompts | The hash is stable across key order and whitespace (property test). A changed wording changes the hash. Sync is idempotent. A status move without ratification is refused |
 | P1.3 | `jev_ask` kind (plan/ask/finish), state-builder interface, held-out guard, dedupe, persistence with hashes and HMAC, `withProgressPatch` | Replaying a step writes 0 duplicate decisions. No text in `progress` (test). The mock run writes `mock=true`. Draft sets run only in `mode=bench` |
 | P1.4 | Breaker, taxonomy, budget (submit and step), DB slot count | Fault-injection tests per class (the §9 table). The breaker opens and half-opens as specified. The cap stops a running job and refuses submit, with an advisory lock (3 concurrent submits cannot overshoot) |
@@ -957,7 +987,7 @@ Only allowlisted codes reach logs, traces, MCP and Bench (`safe-error.ts` discip
 |---|---|---|
 | P4.1 | Wire rubric engine `jev`: `canRun` admits `engine:"jev"` when the question set exists and `JEV_USE_CONSULT_RUBRIC` is on. `rubric_run` delegates to `jev_ask` | `rubric_bench` on CAA's frozen test split reproduces CAA's v8 numbers within rerun jitter. `rubric_result.findings` holds closed codes only |
 | P4.2 | Per-doubt: the agent (`llm_zdr`) lists doubts with timestamps. The `doubt-excerpt-v1` builder (−45/+150 s excerpt) feeds Jev classification. Jev never sees the agent's coding | `doubt` subjects are linked to consult and agent run ids in `evidence`. The agent's coding is absent from the state (test) |
-| P4.3 | Chair affect and surgical pitch as Jev second scorer next to the agent, with order balancing | Shadow on all closed consults for 1 week. CAA posts agreement and calibration. The agent stays primary |
+| P4.3 | Chair affect per consult, and pitch (`pitch_type` + uptake **per pitch**) as Jev second scorer next to the agent, with order balancing | Shadow on all closed consults for 1 week. CAA posts agreement and calibration. Uptake's denominator is the pitch. The agent stays primary |
 
 ---
 
@@ -975,26 +1005,26 @@ Only allowlisted codes reach logs, traces, MCP and Bench (`safe-error.ts` discip
 ---
 
 ## 15. Open questions
-1. **Read handle.** Confirm P0's choice (move reads to the app handle) over granting `brain_svc` SELECT. Migs 0057, 0072 and 0074 argue against grants.
+1. **Read handle.** **Closed** (Vinay, 10 Oct 12:27 IST). P0's primary path is GRANT SELECT to `brain_svc` on the tables those tools read. Moving the reads to the app handle is the alternative.
 2. **Is `ETA_JEV_ENABLED` off in production by intent?** No decisions since 24 Sep 21:19 IST. Turning on the worker needs the master flag on with all `JEV_USE_*` off.
 3. **Subject type for U-A.** Keep PR #34's `encounter` + `tl_…` or add `timeline_segment`? Keeping it is assumed here.
 4. **Re-ask semantics.** Overwrite per hash (proposed) or append-only history for stability reruns?
-5. **TypeSafe limits and terms.** Account QPS and daily limits. Does a request id come back (to store in `jev_call`)? Processing region. Do the ZDR/PHI terms cover U-B/U-C transcript text?
+5. **TypeSafe limits.** Account QPS and daily limits. Does a request id come back (to store in `jev_call`)? Processing region. Transcript text on the ZDR account is already approved (12:27 IST).
 6. **Legacy kinds.** Migrate `jev_window`/`jev_role`/E-6/U4/U6 onto `jev_ask`, or freeze them as legacy?
 7. **Question-set source of truth.** Repo files plus DB mirror (proposed) vs DB-first with an operator write tool.
 8. **U-B consumer.** May a live U-B ever *prefer* an engine for note generation, or only flag for review? This needs a V ruling and an O4 check.
 9. **Budget numbers.** $2 soft / $5 hard per day and 8 in-flight are PROVISIONAL.
 10. **Doctor ID from Jev.** Allow a shadow-only `doctor_speaker` letter hint when voiceprints fail (ruling 182), or keep identity purely acoustic?
 11. **Doubt subject type.** `probe` or a new `doubt` (CAA ruling 14c; this plan assumes `doubt`).
-12. **Consult end definition** (CAA ruling 14a): does the consult end when patient-side voices leave, or when the doctor finishes alone?
-13. **Pitch denominator** (CAA ruling 14b): do investigations and therapeutic procedures count?
+12. **Consult end definition** (CAA ruling 14a). **Closed** (Vinay, 10 Oct 12:27 IST). A consult ends when the patient leaves the room. An encounter ends when the note is submitted. `u10_end_row` scores the consult end only.
+13. **Pitch denominator** (CAA ruling 14b). **Closed** (Vinay, 10 Oct 12:27 IST). A pitch is any doctor suggestion whose patient compliance can be measured: investigations, procedures, medications, physio, follow-up, not just surgery. Uptake is per pitch. `pitch_type` is `investigation | procedure | surgery | medication | physio | follow_up | other`.
 14. **Live vs `main`.** The MCP reports live `99484f9` and `main` is `d94e724`. P0 acceptance must be checked on the deployed build.
 
 ---
 
 ## 16. Reconciliation with PR #34 / epic #23
 
-**Inputs.** CAA's handoff notes (10 Oct, PR #34 head `20d4039`, draft), the CAA sections above, and §§1–15. **Where this section contradicts an earlier Scribe-side line, this section wins.** Nothing here is posted to GitHub. §16.4 lists the follow-up comments to make.
+**Inputs.** CAA's handoff notes (10 Oct, PR #34 head `20d4039`, draft), the CAA sections above, and §§1–15. **Where this section contradicts an earlier Scribe-side line, this section wins, except where Rulings (10 Oct 12:27 IST) contradicts it. That section wins.** Nothing here is posted to GitHub. §16.4 lists the follow-up comments to make.
 
 ### 16.1 Timeline lane (pre-STT, no text): decisions
 1. **Model pin, everywhere.**
@@ -1004,7 +1034,8 @@ Only allowlisted codes reach logs, traces, MCP and Bench (`safe-error.ts` discip
    - A model change is a mandatory re-eval (CAA calibration §5) and voids every calibrator.
 2. **No End click in the Jev state.**
    - The timeline state sends `end_click:"none"` and `end_weak:"none"`. The `end_click_consistent` option is removed from `u10_end_signal`.
-   - Clicks stay in fusion code (rank 1) and serve as **truth for scoring only** (T2).
+   - Clicks stay in fusion code (rank 1). For scoring, a click is consult-end truth only when it is the patient leaving the room (T2). Note submission is encounter end and is not `u10_end_row` truth.
+   - **Consult end** = the patient leaves the room. **Encounter end** = the note is submitted. `u10_end_row` predicts only the consult end (CAA §4 wording; open question 12 closed).
    - The timeline builder (#29) gets a property test that no click time appears in a Jev state.
 3. **No fixed 0.9 threshold until calibrated.**
    - PR #34's "Jev `end_row` at band act (≥ 0.9)" and the fusion `START_P`/`END_P` 0.9 run on raw `confidence`, which is a concentration measure. They are replaced by **per-question τ_auto / τ_review on calibrated p**, set from the T3 gold set (CAA calibration §4).
@@ -1035,23 +1066,21 @@ Only allowlisted codes reach logs, traces, MCP and Bench (`safe-error.ts` discip
    - Fusion, the runner and storage stay as #30 specifies, except items 2, 3, 4 and 7 here.
    - All escapes per CAA principle 5. Gates in code (`u10_kind ≠ consultation` → N/A).
 
-### 16.2 The text lane: separate from epic #23. **Needs Vinay's GO.**
-Epic #23 / PR #34's rule "no transcript text to Jev" **applies to the pre-STT timeline lane only, and stays absolute there.** Everything that sends transcript text is a separate **text lane**:
+### 16.2 The text lane: separate from the pre-STT timeline. **Approved (Vinay, 10 Oct 12:27 IST).**
+The pre-STT timeline lane uses no transcript text **by design**: it runs before STT exists. There is **no system-wide prohibition** on sending transcript text to Jev. Epic #23's "no transcript text to Jev" non-goal is scoped to that pre-STT timeline lane only. Everything that sends transcript text is the **text lane**:
 
 | | |
 |---|---|
 | Sets | QS-STT-GATE, QS-PITCH, QS-AFFECT, QS-DOUBT (U-B and U-C). Not QS-TIMELINE |
-| Flag | **`ETA_JEV_TEXT_LANE`** (default off). Master switch: no text-lane state is built, no call is made and no job is enqueued while it is off. `JEV_USE_STT_QUALITY` and `JEV_USE_CONSULT_RUBRIC` require it. A boot assert refuses `lane='text'` work when it is off |
-| Account | Only V's **ZDR, PHI-approved TypeSafe account** (key `TYPESAFE_API_KEY`, Vercel env). **[inferred]** Confirm the BAA/DPA scope and the processing region in writing before GO |
+| Flag | **`ETA_JEV_TEXT_LANE`** (default off). Operational on/off switch only: no text-lane state is built, no call is made and no job is enqueued while it is off. `JEV_USE_STT_QUALITY` and `JEV_USE_CONSULT_RUBRIC` require it. A boot assert refuses `lane='text'` work when it is off |
+| Account | V's TypeSafe account, **full ZDR, PHI cleared** (key `TYPESAFE_API_KEY`, Vercel env). Vinay, 10 Oct 12:27 IST: "transcripts can go no problem." |
 | Scope | **Consult clips only**: cut consult clips and doctor-app encounter audio transcripts. **Never room windows or room ranges** (matches O4). CAA's QS-STT-GATE "per window" unit becomes per consult-clip span. A subject that is not a consult clip is refused `scope_consult_only` |
-| Minimum necessary | The state holds only the text the question needs: the whole consult for PITCH/AFFECT (CAA: a pitch-window filter lost answers); a −45/+150 s excerpt per doubt; the disagreement span ±1 span for STT-GATE. No clock times, room names, consult/patient ids, doctor names or dates in the state. Numbers, doses and dates are compared in code |
-| Names | Masked to `[name]` (and digit runs to `[NUM]`) **where avoidable** (CAA QS-PITCH inputs). Masking runs in code before the state builder. A masking miss rate is measured on the R-CONSULT sample and reported. Engine names are hidden as `version_A`/`version_B` |
+| Minimum necessary | The state holds only the text the question needs: the whole consult for PITCH/AFFECT (CAA: a pitch-window filter lost answers); a −45/+150 s excerpt per doubt; the disagreement span ±1 span for STT-GATE. Do not add clock times, room names, consult/patient ids or dates as metadata. Numbers, doses and dates are compared in code |
+| Names | Masking names that appear in speech to `[name]` (and digit runs to `[NUM]`) is **optional hygiene**, not a requirement. Engine names stay hidden as `version_A`/`version_B` (that is an eval control, not PHI masking) |
 | Size guard | A **script-aware token estimate** (Indic about 0.7–0.9 tokens/char) replaces the flat 100k-character guard for text-lane states. State + the longest question must stay under 32k tokens, or the subject abstains with `state_too_large` |
 | Storage | Same as everywhere: no text in `jev_decision`, `jev_call` or logs. `state_sha256` is an HMAC. `lane='text'` on every row |
-| Rollout | bench (box, done for PITCH/DOUBT) → **V GO for in-Scribe text lane** → shadow → per-set readiness (CAA §§3–8) → its own `JEV_*_LIVE` flag + V ruling |
+| Rollout | bench (box, done for PITCH/DOUBT) → shadow behind `ETA_JEV_TEXT_LANE` → per-set readiness (CAA §§3–8) → its own `JEV_*_LIVE` flag + V ruling for anything a clinician sees |
 | Held-out | Blind room-days refused as everywhere |
-
-**Ask for V (GO / NO-GO):** "Allow ETA to send masked consult-clip transcript text (consult clips only, minimum necessary) to the ZDR TypeSafe account for the STT gate and consult rubric sets, behind `ETA_JEV_TEXT_LANE`, shadow only."
 
 ### 16.3 Smaller alignments
 - **Phase names.** CAA's P0–P4 are *evaluation* phases. §13's P0–P4 are *build* phases. Mapping:
@@ -1078,5 +1107,5 @@ Epic #23 / PR #34's rule "no transcript text to Jev" **applies to the pre-STT ti
 | 7 | PR #34 §7.2 / #29 / #30 | Jev segment cap START+30 min with an overlapping second segment; ≤ 12 candidate rows for `end_row`; `too_large` = typed abstain |
 | 8 | PR #34 §6.6 / #30 | Wording trial on T3: 150 segments, 75 dev / 75 test by room-day, 30 double-scored |
 | 9 | #30 | Register CAA §4 as `u10-timeline-v2` (arms B/C) next to v1 (arm A); add escapes; `u10_late_start` Noul → `u10_start_offset` Choice |
-| 10 | Epic #23 / PR #34 §3 non-goals | Clarify that "no transcript text to Jev" is scoped to the timeline lane; text-using sets live in the Jev worker's text lane (`ETA_JEV_TEXT_LANE`, V GO), outside #23 |
+| 10 | Epic #23 / PR #34 §3 non-goals | "No transcript text to Jev" is scoped to the pre-STT timeline lane only (it runs before STT exists). There is no system-wide prohibition. Text-using sets live in the Jev worker's text lane (`ETA_JEV_TEXT_LANE` is an operational switch). Vinay approved transcript text to Jev on 10 Oct 12:27 IST |
 | 11 | PR #34 §4.5 | Prompt inventory fix: u1/u2/u6 are in `encounter-v1.ts`; no `timeline-v1.ts` yet |
